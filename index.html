@@ -49,7 +49,9 @@ async function connect(){if(!navigator.bluetooth){log('当前浏览器不支持 
  log('已获取 FFE1 写入特征');
  try{notifyChar=await svc.getCharacteristic(NOTIFY);notifyChar.addEventListener('characteristicvaluechanged',e=>{const v=e.target.value;const a=Array.from(new Uint8Array(v.buffer,v.byteOffset,v.byteLength));log('FFE2 通知：'+a.map(x=>x.toString(16).padStart(2,'0')).join(' ').toUpperCase())});await notifyChar.startNotifications();log('FFE2 通知已开启')}catch(e){log('FFE2 通知未开启（不影响控制）：'+e.message)}
  log('连接完成。等待手动操作。');
- }catch(e){log('连接失败：'+e.name+' — '+e.message);writeChar=null;if(device?.gatt?.connected)device.gatt.disconnect()}finally{busy=false;update()}}
+ }catch(e){log('连接异常：' + String(e));
+log('异常类型：' + typeof e);
+log('异常内容：' + JSON.stringify(e));writeChar=null;if(device?.gatt?.connected)device.gatt.disconnect()}finally{busy=false;update()}}
 async function send(bytes,label){if(!connected()){log('未连接，无法发送');return false}busy=true;update();try{if(writeChar.properties.writeWithoutResponse&&writeChar.writeValueWithoutResponse){await writeChar.writeValueWithoutResponse(bytes)}else if(writeChar.properties.write&&writeChar.writeValueWithResponse){await writeChar.writeValueWithResponse(bytes)}else if(writeChar.writeValue){await writeChar.writeValue(bytes)}else{throw Error('该浏览器不支持此特征的写入方式')}
  log(`${label}：${Array.from(bytes).map(x=>x.toString(16).padStart(2,'0')).join(' ').toUpperCase()}（写入已提交，需观察设备实际状态）`);return true
  }catch(e){log(`${label}失败：${e.name} — ${e.message}`);return false}finally{busy=false;update()}}
