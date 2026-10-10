@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0c1728" />
+<title>Whale BLE Controller</title>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(150deg,#0b1525,#132e42);color:#f2f8fc;padding:env(safe-area-inset-top) 18px 30px}main{max-width:460px;margin:42px auto}.tag{font-size:12px;letter-spacing:2px;color:#81d8e5;font-weight:700}h1{font-size:29px;margin:9px 0}p{color:#b9cbd7;line-height:1.6}.panel{background:#ffffff0e;border:1px solid #ffffff22;border-radius:22px;padding:22px;margin:22px 0}.status{display:flex;align-items:center;gap:10px;font-weight:650}.dot{width:11px;height:11px;background:#8995a3;border-radius:50%}.dot.connected{background:#48dfaa;box-shadow:0 0 13px #48dfaa80}button{width:100%;border:0;border-radius:15px;padding:17px;font-size:17px;font-weight:750;cursor:pointer;margin:9px 0;background:#67d9e6;color:#08212b}button:disabled{opacity:.38;cursor:not-allowed}.start{background:#6ae0b2}.stop{background:#ffb6aa;color:#351510}.disconnect{background:transparent;border:1px solid #7d9caa;color:#d8e8ee}small{color:#aec4d1}pre{white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.65;max-height:230px;overflow:auto;color:#c7e4ec}hr{border:0;border-top:1px solid #ffffff25;margin:20px 0}.hint{font-size:13px}code{color:#b5f5d7}
+</style>
+</head>
+<body>
+<main>
+<div class="tag">WEB BLUETOOTH · V1</div>
+<h1>Whale BLE Controller</h1>
+<p>使用已验证的 FFE1 指令直接控制设备。连接后不会自动启动。</p>
+<section class="panel">
+<div class="status"><span class="dot" id="dot"></span><span id="status">未连接</span></div>
+<p id="support" class="hint">正在检测浏览器蓝牙支持…</p>
+<button id="connect">连接 Small Whale Vibrator</button>
+<button id="disconnect" class="disconnect" disabled>停止并断开</button>
+<hr>
+<button id="start" class="start" disabled>▶ 启动（已验证指令）</button>
+<button id="stop" class="stop" disabled>■ 停止</button>
+<p class="hint">启动：<code>55 03 05 4A 00 00</code><br>停止：<code>55 03 05 00 00 00</code></p>
+<p class="hint">请在设备不贴身使用时先测试。断开蓝牙并不保证设备自动停止；如果失去连接，请使用设备实体开关。</p>
+</section>
+<section class="panel"><strong>操作日志</strong><pre id="log">等待操作…</pre></section>
+</main>
+<script>
+'use strict';
+const SERVICE=0xffe0, WRITE=0xffe1, NOTIFY=0xffe2;
+const START=Uint8Array.from([0x55,0x03,0x05,0x4a,0,0]);
+const STOP=Uint8Array.from([0x55,0x03,0x05,0,0,0]);
+let device=null, server=null, writeChar=null, notifyChar=null, busy=false;
+const $=id=>document.getElementById(id);
+function log(message){const t=new Date().toLocaleTimeString();$('log').textContent=(`[${t}] ${message}\n`+($('log').textContent==='等待操作…'?'':$('log').textContent)).slice(0,6500)}
+function connected(){return !!(device&&device.gatt&&device.gatt.connected&&writeChar)}
+function update(){const on=connected();$('status').textContent=on?`已连接：${device.name||'BLE 设备'}`:'未连接';$('dot').classList.toggle('connected',on);$('connect').disabled=busy||on||!navigator.bluetooth;$('start').disabled=busy||!on;$('stop').disabled=busy||!on;$('disconnect').disabled=busy||!on}
+function onDisconnect(){writeChar=null;notifyChar=null;server=null;log('蓝牙连接已断开；设备是否停止需现场确认');update()}
+async function connect(){if(!navigator.bluetooth){log('当前浏览器不支持 Web Bluetooth');return}busy=true;update();try{
+ log('正在请求选择设备…');
+ device=await navigator.bluetooth.requestDevice({filters:[{name:'Small Whale Vibrator'}],optionalServices:[SERVICE]});
+ device.addEventListener('gattserverdisconnected',onDisconnect);
+ log('已选择：'+(device.name||'未命名设备')+'，正在连接 GATT…');
+ server=await device.gatt.connect();
+ const svc=await server.getPrimaryService(SERVICE);
+ writeChar=await svc.getCharacteristic(WRITE);
+ log('已获取 FFE1 写入特征');
+ try{notifyChar=await svc.getCharacteristic(NOTIFY);notifyChar.addEventListener('characteristicvaluechanged',e=>{const v=e.target.value;const a=Array.from(new Uint8Array(v.buffer,v.byteOffset,v.byteLength));log('FFE2 通知：'+a.map(x=>x.toString(16).padStart(2,'0')).join(' ').toUpperCase())});await notifyChar.startNotifications();log('FFE2 通知已开启')}catch(e){log('FFE2 通知未开启（不影响控制）：'+e.message)}
+ log('连接完成。等待手动操作。');
+ }catch(e){log('连接失败：'+e.name+' — '+e.message);writeChar=null;if(device?.gatt?.connected)device.gatt.disconnect()}finally{busy=false;update()}}
+async function send(bytes,label){if(!connected()){log('未连接，无法发送');return false}busy=true;update();try{if(writeChar.properties.writeWithoutResponse&&writeChar.writeValueWithoutResponse){await writeChar.writeValueWithoutResponse(bytes)}else if(writeChar.properties.write&&writeChar.writeValueWithResponse){await writeChar.writeValueWithResponse(bytes)}else if(writeChar.writeValue){await writeChar.writeValue(bytes)}else{throw Error('该浏览器不支持此特征的写入方式')}
+ log(`${label}：${Array.from(bytes).map(x=>x.toString(16).padStart(2,'0')).join(' ').toUpperCase()}（写入已提交，需观察设备实际状态）`);return true
+ }catch(e){log(`${label}失败：${e.name} — ${e.message}`);return false}finally{busy=false;update()}}
+async function disconnect(){if(!device)return;const ok=await send(STOP,'断开前停止');if(!ok){log('停止命令未确认提交，请使用设备实体开关确保停止')}if(device?.gatt?.connected)device.gatt.disconnect();update()}
+$('connect').addEventListener('click',connect);
+$('start').addEventListener('click',()=>send(START,'启动'));
+$('stop').addEventListener('click',()=>send(STOP,'停止'));
+$('disconnect').addEventListener('click',disconnect);
+$('support').textContent=navigator.bluetooth?'检测到 Web Bluetooth API。请确保通过 HTTPS 访问。':'未检测到 Web Bluetooth API。iPhone 请尝试支持该功能的浏览器（如 Bluefy）并使用 HTTPS。';
+update();
+</script>
+</body>
+</html>
