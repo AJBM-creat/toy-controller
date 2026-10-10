@@ -40,7 +40,7 @@ function update(){const on=connected();$('status').textContent=on?`已连接：$
 function onDisconnect(){writeChar=null;notifyChar=null;server=null;log('蓝牙连接已断开；设备是否停止需现场确认');update()}
 async function connect(){if(!navigator.bluetooth){log('当前浏览器不支持 Web Bluetooth');return}busy=true;update();try{
  log('正在请求选择设备…');
- device=await navigator.bluetooth.requestDevice({filters:[{name:'Small Whale Vibrator'}],optionalServices:[SERVICE]});
+ device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[SERVICE]});
  device.addEventListener('gattserverdisconnected',onDisconnect);
  log('已选择：'+(device.name||'未命名设备')+'，正在连接 GATT…');
  server=await device.gatt.connect();
